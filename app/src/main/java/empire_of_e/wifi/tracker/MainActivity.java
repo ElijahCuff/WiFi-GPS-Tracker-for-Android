@@ -2,9 +2,8 @@ package empire_of_e.wifi.tracker;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
@@ -13,25 +12,33 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.SystemClock;
-import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
+import android.support.v7.app.AlertDialog;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import empire_of_e.wifi.tracker.R;
 import java.io.BufferedReader;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStreamReader;
+import java.net.URL;
 import java.net.URLEncoder;
+import javax.net.ssl.HttpsURLConnection;
 
 public class MainActivity extends Activity {
 
@@ -42,12 +49,13 @@ public class MainActivity extends Activity {
     WifiReceiver receiverWifi;
 		Button buttonScan ;
 		Boolean running = false;
-    ProgressBar pb;
+    static  ProgressBar pb;
 		LocationManager locationManager;
     LocationListener locationListener;
 		Button plot;
 		TextView gps;
-		Intent noti;
+
+		WebView wv;
 
 		public static double lat;
 		public static double lon;
@@ -64,17 +72,68 @@ public class MainActivity extends Activity {
 				pb = findViewById(R.id.pb);
 				showProgress(false);
         wifiList = findViewById(R.id.wifiList);
-				noti = new Intent(this, Notify.class);
+				wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+				locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
+
 				gps = findViewById(R.id.gps);
 				plot = findViewById(R.id.plot);
-				checkPerms(new String[] {Manifest.permission.WRITE_EXTERNAL_STORAGE,Manifest.permission.ACCESS_FINE_LOCATION});
 				getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 				getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
-				createNotificationChannel();
-    }
+			  checkPerms(new String[] {Manifest.permission.WRITE_EXTERNAL_STORAGE,Manifest.permission.ACCESS_FINE_LOCATION});
+
+
+
+		}
+
+
+		public void showMap(final String locationString) {
+				new Thread(new Runnable(){
+
+								@Override
+								public void run() {
+										try {
+												final String response = sendPost("https://gps-plotter.herokuapp.com", "showPath=true&showArea=false&zoom=17&locations=" + locationString);
+												runOnUiThread(new Runnable(){
+																@Override
+																public void run() {
+																		AlertDialog.Builder alertDial = new AlertDialog.Builder(MainActivity.this);
+																		alertDial.setCancelable(false);
+																		wv = new WebView(me);
+																		wv.setWebChromeClient(new WebChromeClient(){});
+																		wv.setWebViewClient(new WebViewClient(){});
+																		WebSettings ws = wv.getSettings();
+																		ws.setJavaScriptEnabled(true);
+																		alertDial.setView(wv);
+																		alertDial.setPositiveButton("DONE", new DialogInterface.OnClickListener() {
+																						public void onClick(DialogInterface dialog, int which) {
+																						}
+																				});
+																		alertDial.setIcon(R.drawable.ic_launcher);
+																		
+																		plot.setEnabled(true);
+																		plot.setText("PLOT ON MAP");
+																		
+																		alertDial.show();
+																		ViewGroup.LayoutParams lp =	 wv.getLayoutParams();
+																		lp.height = 900;
+																		wv.setLayoutParams(lp);
+																		wv.loadData(response, "text/html", "UTF-8");
+																}
+														});
+										}
+										catch (Exception e) {
+												toast(e.getMessage());
+										}
+										finally {
+										}
+								}
+						}).start();
+		}
 
 		public void plotMAP(View view) {
 				File myFile = new File(Environment.getExternalStorageDirectory(), "wardrive" + time + ".csv");
+			plot.setText("PLOTTING");
+			plot.setEnabled(false);
 				try {
 						BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(myFile)));
 						String line;
@@ -97,89 +156,94 @@ public class MainActivity extends Activity {
 						}		
 
 						results = results.substring(0, results.length() - 1);
-
-						Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://gps-plotter.herokuapp.com/?showLine=true&zoom=17&locations=" + results));
-						startActivity(browserIntent);
+						showMap(URLEncoder.encode(results));
 				}
 				catch (Exception e) {
 						toast(e.getMessage());
 				}
-
-
-
-
 		}
-
-
-		private void createNotificationChannel() {
-				// Create the NotificationChannel, but only on API 26+ because
-				// the NotificationChannel class is new and not in the support library
-				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-						CharSequence name = "Video Playback";
-						String description = "Background Video Playback";
-						int importance = NotificationManager.IMPORTANCE_LOW;
-						NotificationChannel channel = new NotificationChannel("zoopy", name, importance);
-						channel.setDescription(description);
-						// Register the channel with the system; you can't change the importance
-						// or other notification behaviors after this
-						NotificationManager notificationManager = getSystemService(NotificationManager.class);
-						notificationManager.createNotificationChannel(channel);
-				}
-		}
-
 
 		public void initWifi() {
-				wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-
-        if (!wifiManager.isWifiEnabled()) {
-            toast("PLEASE ENABLE Wi-Fi");
-						//   wifiManager.setWifiEnabled(true);
-        }
-
 				wifiList.setOnItemClickListener(new ListView.OnItemClickListener(){
-
 								@Override
 								public void onItemClick(AdapterView<?> p1, View p2, int p3, long p4) {
 										String[] data = p1.getItemAtPosition(p3).toString().split("\n");
 										String SSID = data[0];
 										Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("http://www.google.com/search?q=" + URLEncoder.encode(SSID)));
-										startActivity(browserIntent);
-										//Toast.makeText(MainActivity.this,data.getText().toString(),Toast.LENGTH_LONG).show();
-								}
+										startActivity(browserIntent);				}
 						});
 
 				if (!running) {
 						running = true;
-
 						new Thread(new Runnable(){
 										@Override
 										public void run() {
-												wifiManager.disconnect();
-
 												while (running) {
-														if (wifiManager.startScan() == true) {
-																SystemClock.sleep(6000);
-																locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, locationListener);
-														}
-														else {
-																showProgress(true);
-																wifiManager.disconnect();
-																wifiManager.setWifiEnabled(false);
-																wifiManager.setWifiEnabled(true);
-																while (wifiManager.startScan() != true) {
-																}
-																showProgress(false);
-																SystemClock.sleep(6000);
-														}
-												} 
+														scanWifi();
+														locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, locationListener);
+														SystemClock.sleep(6000);
+												}
 										}
 								}).start();
 				}
 		}
+
+
 		//https://www.google.com/maps/place/41%C2%B010'12.0%22S+147%C2%B044'38.7%22E/@-41.1702777,147.7441316,18z/data=!3m1!1e3
 
+		private	void scanWifi() {
+				if (wifiManager.startScan() != true) {	
+						showProgress(true);
+						wifiManager.disconnect();
+						wifiManager.setWifiEnabled(false);
+						wifiManager.setWifiEnabled(true);
+						while (wifiManager.startScan() != true) {}
+						showProgress(false);
+				}		
+		}
+
+
+		// Function to send post request and collect errors
+		String currentUrl;
+		String error;
+  	HttpsURLConnection conn;
+		private String sendPost(String url, String data) throws Exception {
+
+				URL obj = new URL(url);
+				conn = (HttpsURLConnection) obj.openConnection();
+				// Act like a real browser
+				conn.setUseCaches(false);
+				conn.setRequestMethod("POST");
+				conn.setRequestProperty("Accept-Language", "en-US,en;q=0.5");
+				conn.setRequestProperty("Content-Length", Integer.toString(data.length()));
+				conn.setConnectTimeout(4000);
+				conn.setReadTimeout(10000);
+				conn.setFollowRedirects(true);
+				conn.setDoOutput(true);
+				conn.setDoInput(true);
+
+				// Send post request
+				DataOutputStream wr = new DataOutputStream(conn.getOutputStream());
+				wr.writeBytes(data);
+				wr.flush();
+				wr.close();
+
+				// Collect response data for error analysis
+				BufferedReader in = 
+						new BufferedReader(new InputStreamReader(conn.getInputStream()));
+				String inputLine;
+				StringBuilder response = new StringBuilder();
+				while ((inputLine = in.readLine()) != null) {
+						response.append(inputLine + "\n");
+				}
+				int responseCode = conn.getResponseCode();
+				String responseMessage = conn.getResponseMessage();
+				in.close();
+				return response.toString();
+		}
+
+
 		public void initLoc() {
-				locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
 				locationListener = new LocationListener() {
 						@Override
 						public void onLocationChanged(Location location) {
@@ -193,10 +257,10 @@ public class MainActivity extends Activity {
 								if (accu <= 15) {
 										newAccu = "GPS LOCKED  -  " + accuracy;
 										if (accu >= 4.0 & accu <= 10.0) {
-												newAccu = "GPS LOCKED - INDOORS " + accuracy;
+												newAccu = "GPS LOCKED " + accuracy;
 										}
 										if (accu < 4) {
-												newAccu = "GPS LOCKED  - HIGHLY ACCURATE " + accuracy;
+												newAccu = "GPS LOCKED  " + accuracy;
 										}
 
 								}
@@ -217,7 +281,8 @@ public class MainActivity extends Activity {
 						locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, locationListener);
 				}
 		}
-		public void showProgress(final boolean shouldShow) {
+
+		public static void showProgress(final boolean shouldShow) {
 				me.runOnUiThread(new Runnable(){
 								@Override
 								public void run() {
@@ -244,17 +309,6 @@ public class MainActivity extends Activity {
 						});
 		}
 
-
-    @Override
-    protected void onResume() {
-				stopService(noti);
-        super.onResume();
-    }
-
-
-
-
-
     @Override
     protected void onPostResume() {
         super.onPostResume();
@@ -275,21 +329,18 @@ public class MainActivity extends Activity {
 						});
 		}
 
-    @Override
-    protected void onPause() {
-				Notify.title = "Wi-Fi Tracker";
-        Notify.descr = "Scanning Active";
-				startService(noti);
-     //   unregisterReceiver(receiverWifi);
-			 super.onPause();
-    }
-	
 
 
-
-		private void checkPerms(String[] perms) {     
-				ActivityCompat.requestPermissions(MainActivity.this, perms, MY_PERMISSION_REQUEST);
+		private void checkPerms(String[] perms) {    
+				requestPermissions(perms, MY_PERMISSION_REQUEST);
 		}
+
+		@Override
+		protected void onDestroy() {
+
+				super.onDestroy();
+		}
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
@@ -297,20 +348,29 @@ public class MainActivity extends Activity {
         switch (requestCode) {
             case MY_PERMISSION_REQUEST:
                 if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-										//     Toast.makeText(MainActivity.this, "permission granted", Toast.LENGTH_SHORT).show();
 
-										if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-												initLoc();
-										}
+										if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+												if (locationManager.isLocationEnabled()) {
+														initLoc();
+												}
 										if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-												initWifi();
+												if (!wifiManager.isWifiEnabled()) {
+														try {
+													    	wifiManager.setWifiEnabled(true);
+																initWifi();
+														}
+														catch (Error e) {
+																toast(e.getMessage());
+														}
+												}
+												else {
+														initWifi();
+												}
 										}
-                }
+								}
 								else {
-										Toast.makeText(MainActivity.this, "permission not granted", 200).show();
-                    return;
-                }
-                break;
-        }
-    }
+										toast("permission not granted");
+								}
+				}
+		}
 }

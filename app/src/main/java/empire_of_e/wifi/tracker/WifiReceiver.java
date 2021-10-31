@@ -47,6 +47,7 @@ class WifiReceiver extends BroadcastReceiver {
 								MainActivity.toast(e.getMessage());
 						}
 				}
+				
 				try {
 						BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(myFile)));
 						String line;
@@ -65,8 +66,8 @@ class WifiReceiver extends BroadcastReceiver {
 								if ((sSID + mAC).equals((SSID + MAC))) {
 										newWifi = false;
 										if (sTREN > STRE) {
-								      	results += SSID + "," + MAC + "," + sTREN  + "," + ENC + "," + FREQ + "," + location + "," + ((accu < ACCU) ? accu: ACCU) + "\n";
-												MainActivity.toast("UPDATED : " + SSID + MAC);
+								      	results += SSID + "," + MAC + "," + sTREN  + "," + ENC + "," + FREQ + "," + location + "," + accu + "\n";
+										//		MainActivity.toast("UPDATED : " + SSID + MAC);
 										}
 										else {
 												results += SSID + "," + MAC + "," + STRE  + "," + ENC + "," + FREQ + "," + LOC + "," + ACCU + "\n";	
@@ -101,11 +102,8 @@ class WifiReceiver extends BroadcastReceiver {
             final List<ScanResult> wifiList = wifiManager.getScanResults();
 
 						final ArrayList<String> deviceList = new ArrayList<>();
-
-
-
-
 						for (ScanResult scanResult : wifiList) {
+					
 								try {
 										String accuracy = String.valueOf(MainActivity.accu);
 										Double lat = MainActivity.lat;
